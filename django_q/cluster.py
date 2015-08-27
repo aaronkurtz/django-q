@@ -23,8 +23,7 @@ import arrow
 
 # Django
 from django.utils import timezone
-from django.utils.translation import ugettext_lazy as _
-from django import db
+from django import db, apps
 
 # Local
 import signing
@@ -33,6 +32,13 @@ import tasks
 from django_q.conf import Conf, redis_client, logger, psutil, get_ppid
 from django_q.models import Task, Success, Schedule
 from django_q.status import Stat, Status, ping_redis
+
+# hack for windows
+if apps.apps.ready:
+    from django.utils.translation import ugettext_lazy as _
+else:
+    def _(txt):
+        return txt
 
 
 class Cluster(object):
