@@ -13,6 +13,8 @@ from django_q.models import Schedule, Task
 from django_q.humanhash import uuid
 from django_q.brokers import get_broker
 
+DEFAULT_WAIT_POLLING = 0.01
+
 
 def async(func, *args, **kwargs):
     """Queue a task for the cluster."""
@@ -87,7 +89,7 @@ def schedule(func, *args, **kwargs):
                                    )
 
 
-def result(task_id, wait=0, cached=Conf.CACHED):
+def result(task_id, wait=0, cached=Conf.CACHED, poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return the result of the named task.
 
@@ -96,11 +98,13 @@ def result(task_id, wait=0, cached=Conf.CACHED):
     :type wait: int
     :param wait: number of milliseconds to wait for a result
     :param bool cached: run this against the cache backend
+    :type poll_interval: int
+    :param poll_interval: number of seconds to sleep while waiting for result
     :return: the result object of this task
     :rtype: object
     """
     if cached:
-        return result_cached(task_id, wait)
+        return result_cached(task_id, wait, poll_interval=poll_interval)
     start = time.time()
     while True:
         r = Task.get_result(task_id)
@@ -108,10 +112,10 @@ def result(task_id, wait=0, cached=Conf.CACHED):
             return r
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def result_cached(task_id, wait=0, broker=None):
+def result_cached(task_id, wait=0, broker=None, poll_interval=DEFAULT_WAIT_POLLING):
     """
      Return the result from the cache backend
     """
@@ -124,10 +128,11 @@ def result_cached(task_id, wait=0, broker=None):
             return signing.SignedPackage.loads(r)['result']
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def result_group(group_id, failures=False, wait=0, count=None, cached=Conf.CACHED):
+def result_group(group_id, failures=False, wait=0, count=None, cached=Conf.CACHED,
+                 poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return a list of results for a task group.
 
@@ -135,26 +140,29 @@ def result_group(group_id, failures=False, wait=0, count=None, cached=Conf.CACHE
     :param bool failures: set to True to include failures
     :param int count: Block until there are this many results in the group
     :param bool cached: run this against the cache backend
+    :type poll_interval: int
+    :param poll_interval: number of seconds to sleep while waiting for result
     :return: list or results
     """
     if cached:
-        return result_group_cached(group_id, failures, wait, count)
+        return result_group_cached(group_id, failures, wait, count, poll_interval=poll_interval)
     start = time.time()
     if count:
         while True:
             if count_group(group_id) == count or wait and (time.time() - start) * 1000 >= wait >= 0:
                 break
-            time.sleep(0.01)
+            time.sleep(poll_interval)
     while True:
         r = Task.get_result_group(group_id, failures)
         if r:
             return r
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def result_group_cached(group_id, failures=False, wait=0, count=None, broker=None):
+def result_group_cached(group_id, failures=False, wait=0, count=None, broker=None,
+                        poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return a list of results for a task group from the cache backend
     """
@@ -165,7 +173,7 @@ def result_group_cached(group_id, failures=False, wait=0, count=None, broker=Non
         while True:
             if count_group_cached(group_id) == count or wait and (time.time() - start) * 1000 >= wait > 0:
                 break
-            time.sleep(0.01)
+            time.sleep(poll_interval)
     while True:
         group_list = broker.cache.get('{}:{}:keys'.format(broker.list_key, group_id))
         if group_list:
@@ -177,10 +185,10 @@ def result_group_cached(group_id, failures=False, wait=0, count=None, broker=Non
             return result_list
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def fetch(task_id, wait=0, cached=Conf.CACHED):
+def fetch(task_id, wait=0, cached=Conf.CACHED, poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return the processed task.
 
@@ -189,11 +197,13 @@ def fetch(task_id, wait=0, cached=Conf.CACHED):
     :param wait: the number of milliseconds to wait for a result
     :type wait: int
     :param bool cached: run this against the cache backend
+    :type poll_interval: int
+    :param poll_interval: number of seconds to sleep while waiting for result
     :return: the full task object
     :rtype: Task
     """
     if cached:
-        return fetch_cached(task_id, wait)
+        return fetch_cached(task_id, wait, poll_interval=poll_interval)
     start = time.time()
     while True:
         t = Task.get_task(task_id)
@@ -201,10 +211,10 @@ def fetch(task_id, wait=0, cached=Conf.CACHED):
             return t
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def fetch_cached(task_id, wait=0, broker=None):
+def fetch_cached(task_id, wait=0, broker=None, poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return the processed task from the cache backend
     """
@@ -228,36 +238,38 @@ def fetch_cached(task_id, wait=0, broker=None):
             return t
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def fetch_group(group_id, failures=True, wait=0, count=None, cached=Conf.CACHED):
+def fetch_group(group_id, failures=True, wait=0, count=None, cached=Conf.CACHED, poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return a list of Tasks for a task group.
 
     :param str group_id: the group id
     :param bool failures: set to False to exclude failures
     :param bool cached: run this against the cache backend
+    :type poll_interval: int
+    :param poll_interval: number of seconds to sleep while waiting for result
     :return: list of Tasks
     """
     if cached:
-        return fetch_group_cached(group_id, failures, wait, count)
+        return fetch_group_cached(group_id, failures, wait, count, poll_interval=poll_interval)
     start = time.time()
     if count:
         while True:
             if count_group(group_id) == count or wait and (time.time() - start) * 1000 >= wait >= 0:
                 break
-            time.sleep(0.01)
+            time.sleep(poll_interval)
     while True:
         r = Task.get_task_group(group_id, failures)
         if r:
             return r
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
-def fetch_group_cached(group_id, failures=True, wait=0, count=None, broker=None):
+def fetch_group_cached(group_id, failures=True, wait=0, count=None, broker=None, poll_interval=DEFAULT_WAIT_POLLING):
     """
     Return a list of Tasks for a task group in the cache backend
     """
@@ -268,7 +280,7 @@ def fetch_group_cached(group_id, failures=True, wait=0, count=None, broker=None)
         while True:
             if count_group_cached(group_id) == count or wait and (time.time() - start) * 1000 >= wait >= 0:
                 break
-            time.sleep(0.01)
+            time.sleep(poll_interval)
     while True:
         group_list = broker.cache.get('{}:{}:keys'.format(broker.list_key, group_id))
         if group_list:
@@ -291,7 +303,7 @@ def fetch_group_cached(group_id, failures=True, wait=0, count=None, broker=None)
             return task_list
         if (time.time() - start) * 1000 >= wait >= 0:
             break
-        time.sleep(0.01)
+        time.sleep(poll_interval)
 
 
 def count_group(group_id, failures=False, cached=Conf.CACHED):
@@ -463,23 +475,27 @@ class Iter(object):
         self.started = True
         return self.id
 
-    def result(self, wait=0):
+    def result(self, wait=0, poll_interval=DEFAULT_WAIT_POLLING):
         """
         return the full list of results.
         :param int wait: how many milliseconds to wait for a result
+        :type poll_interval: int
+        :param poll_interval: number of seconds to sleep while waiting for result
         :return: an unsorted list of results
         """
         if self.started:
-            return result(self.id, wait=wait, cached=self.cached)
+            return result(self.id, wait=wait, cached=self.cached, poll_interval=poll_interval)
 
-    def fetch(self, wait=0):
+    def fetch(self, wait=0, poll_interval=DEFAULT_WAIT_POLLING):
         """
         get the task result objects.
         :param int wait: how many milliseconds to wait for a result
+        :type poll_interval: int
+        :param poll_interval: number of seconds to sleep while waiting for result
         :return: an unsorted list of task objects
         """
         if self.started:
-            return fetch(self.id, wait=wait, cached=self.cached)
+            return fetch(self.id, wait=wait, cached=self.cached, poll_interval=poll_interval)
 
     def length(self):
         """
@@ -528,20 +544,25 @@ class Chain(object):
         """
         return the full list of results from the chain when it finishes. blocks until timeout.
         :param int wait: how many milliseconds to wait for a result
+        :type poll_interval: int
+        :param poll_interval: number of seconds to sleep while waiting for result
         :return: an unsorted list of results
         """
         if self.started:
             return result_group(self.group, wait=wait, count=self.length(), cached=self.cached)
 
-    def fetch(self, failures=True, wait=0):
+    def fetch(self, failures=True, wait=0, poll_interval=DEFAULT_WAIT_POLLING):
         """
         get the task result objects from the chain when it finishes. blocks until timeout.
         :param failures: include failed tasks
         :param int wait: how many milliseconds to wait for a result
+        :type poll_interval: int
+        :param poll_interval: number of seconds to sleep while waiting for result
         :return: an unsorted list of task objects
         """
         if self.started:
-            return fetch_group(self.group, failures=failures, wait=wait, count=self.length(), cached=self.cached)
+            return fetch_group(self.group, failures=failures, wait=wait, count=self.length(),
+                               cached=self.cached, poll_interval=poll_interval)
 
     def current(self):
         """
@@ -638,25 +659,27 @@ class Async(object):
         self.started = True
         return self.id
 
-    def result(self, wait=0):
+    def result(self, wait=0, poll_interval=DEFAULT_WAIT_POLLING):
 
         if self.started:
-            return result(self.id, wait=wait, cached=self.cached)
+            return result(self.id, wait=wait, cached=self.cached, poll_interval=poll_interval)
 
-    def fetch(self, wait=0):
+    def fetch(self, wait=0, poll_interval=DEFAULT_WAIT_POLLING):
 
         if self.started:
-            return fetch(self.id, wait=wait, cached=self.cached)
+            return fetch(self.id, wait=wait, cached=self.cached, poll_interval=poll_interval)
 
-    def result_group(self, failures=False, wait=0, count=None):
-
-        if self.started and self.group:
-            return result_group(self.group, failures=failures, wait=wait, count=count, cached=self.cached)
-
-    def fetch_group(self, failures=True, wait=0, count=None):
+    def result_group(self, failures=False, wait=0, count=None, poll_interval=DEFAULT_WAIT_POLLING):
 
         if self.started and self.group:
-            return fetch_group(self.group, failures=failures, wait=wait, count=count, cached=self.cached)
+            return result_group(self.group, failures=failures, wait=wait, count=count, cached=self.cached,
+                                poll_interval=poll_interval)
+
+    def fetch_group(self, failures=True, wait=0, count=None, poll_interval=DEFAULT_WAIT_POLLING):
+
+        if self.started and self.group:
+            return fetch_group(self.group, failures=failures, wait=wait, count=count, cached=self.cached,
+                               poll_interval=poll_interval)
 
 
 def _sync(pack):
